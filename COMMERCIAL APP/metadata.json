@@ -1,0 +1,5 @@
+{
+  "name": "BIM Schedule to NRM 2 Grouper",
+  "description": "An intelligent tool that analyzes CSV schedules exported from BIM models. It uses AI to automatically group building elements into the appropriate RICS New Rules of Measurement (NRM 2) work sections, streamlining the quantity surveying process.",
+  "requestFramePermissions": []
+}
