@@ -1,11 +1,11 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { PDFDocument } from 'pdf-lib';
-import { DrawingIcon, PlusIcon, XIcon } from './Icons';
+import { DrawingIcon, PlusIcon, XIcon, SearchIcon, EditIcon, ChevronDownIcon, ChevronRightIcon } from './Icons';
 import { PDFViewer } from './PDFViewer';
 import { PDFErrorBoundary } from './PDFErrorBoundary';
 import { uploadPDF, deletePDF, getPDFBlob } from '../services/storageService';
-import { saveDrawing, getProjectDrawings, updateDrawing, deleteDrawing as deleteDrawingFromFirestore, DrawingData } from '../services/firestoreService';
+import { saveDrawing, getProjectDrawings, updateDrawing, deleteDrawing as deleteDrawingFromFirestore, DrawingData, PackData, getProjectPacks, savePack, updatePack, deletePack } from '../services/firestoreService';
 import { initializePDFWorker, waitForWorkerReady } from '../utils/pdfWorker';
 import { pdfRenderQueue } from '../utils/pdfRenderQueue';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -51,6 +51,17 @@ export interface Drawing {
   fileUrl?: string;
   packageName: string;
   drawingType: string;
+  packIds?: string[]; // Array of pack IDs this drawing belongs to
+  packAnnotations?: Record<string, { // Pack-specific annotations keyed by packId
+    polylines?: PolylineMarkup[];
+    polygons?: PolygonMarkup[];
+    counts?: CountMarkup[];
+    scale?: {
+      pixelDistance: number;
+      realWorldDistance: number;
+      unit: string;
+    };
+  }>;
   scale?: {
     pixelDistance: number;
     realWorldDistance: number;
@@ -68,14 +79,22 @@ interface DrawingsLandingProps {
 
 export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projectId }) => {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
+  const [packs, setPacks] = useState<PackData[]>([]);
   const [selectedDrawing, setSelectedDrawing] = useState<Drawing | null>(null);
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null); // Pack context for viewing
   const [isUploading, setIsUploading] = useState(false);
   const [splittingProgress, setSplittingProgress] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showPackModal, setShowPackModal] = useState(false);
+  const [editingPack, setEditingPack] = useState<PackData | null>(null);
+  const [newPackName, setNewPackName] = useState<string>('');
+  const [isAllDrawingsExpanded, setIsAllDrawingsExpanded] = useState<boolean>(false);
+  const [isPackagesExpanded, setIsPackagesExpanded] = useState<boolean>(false);
 
-  // Load drawings from Firestore on mount
+  // Load drawings and packs from Firestore on mount
   useEffect(() => {
-    const loadDrawings = async () => {
+    const loadData = async () => {
       if (!projectId) {
         setIsLoading(false);
         return;
@@ -83,7 +102,11 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
       
       setIsLoading(true);
       try {
-        const drawingsData = await getProjectDrawings(userId, projectId);
+        const [drawingsData, packsData] = await Promise.all([
+          getProjectDrawings(userId, projectId),
+          getProjectPacks(userId, projectId, 'drawings')
+        ]);
+        
         // Convert DrawingData to Drawing format
         const convertedDrawings: Drawing[] = await Promise.all(
           drawingsData.map(async (data) => {
@@ -102,6 +125,8 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
               fileUrl: data.fileUrl,
               packageName: data.packageName,
               drawingType: data.drawingType,
+              packIds: data.packIds || [],
+              packAnnotations: data.packAnnotations || {},
               scale: data.scale,
               polylines: data.polylines,
               polygons: data.polygons,
@@ -110,14 +135,15 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
           })
         );
         setDrawings(convertedDrawings);
+        setPacks(packsData);
       } catch (error) {
-        console.error('Error loading drawings:', error);
+        console.error('Error loading data:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadDrawings();
+    loadData();
   }, [userId, projectId]);
 
   // Function to split a multi-page PDF into individual page PDFs
@@ -232,16 +258,19 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
       });
     }
     
-    // Update Firestore
+    // Update Firestore - remove undefined values as Firestore doesn't allow them
     try {
-      await updateDrawing(id, {
-        packageName: updates.packageName,
-        drawingType: updates.drawingType,
-        scale: updates.scale,
-        polylines: updates.polylines,
-        polygons: updates.polygons,
-        counts: updates.counts
-      });
+      const updateData: any = {};
+      if (updates.packageName !== undefined) updateData.packageName = updates.packageName;
+      if (updates.drawingType !== undefined) updateData.drawingType = updates.drawingType;
+      if (updates.packIds !== undefined) updateData.packIds = updates.packIds || [];
+      if (updates.packAnnotations !== undefined) updateData.packAnnotations = updates.packAnnotations || {};
+      if (updates.scale !== undefined) updateData.scale = updates.scale;
+      if (updates.polylines !== undefined) updateData.polylines = updates.polylines;
+      if (updates.polygons !== undefined) updateData.polygons = updates.polygons;
+      if (updates.counts !== undefined) updateData.counts = updates.counts;
+      
+      await updateDrawing(id, updateData);
     } catch (error) {
       console.error('Error updating drawing:', error);
     }
@@ -268,13 +297,142 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
     }
   }, [selectedDrawing, drawings]);
 
-  const handleOpenDrawing = useCallback((drawing: Drawing) => {
-    setSelectedDrawing(drawing);
+  const handleOpenDrawing = useCallback((drawing: Drawing, packId?: string | null) => {
+    // If opening from a pack context, use pack-specific annotations
+    if (packId && drawing.packAnnotations?.[packId]) {
+      const packAnnotations = drawing.packAnnotations[packId];
+      setSelectedDrawing({
+        ...drawing,
+        polylines: packAnnotations.polylines || drawing.polylines,
+        polygons: packAnnotations.polygons || drawing.polygons,
+        counts: packAnnotations.counts || drawing.counts,
+        scale: packAnnotations.scale || drawing.scale
+      });
+      setSelectedPackId(packId);
+    } else {
+      setSelectedDrawing(drawing);
+      setSelectedPackId(null);
+    }
   }, []);
 
   const handleCloseViewer = useCallback(() => {
     setSelectedDrawing(null);
+    setSelectedPackId(null);
   }, []);
+
+  // Pack management functions
+  const handleCreatePack = useCallback(async () => {
+    if (!newPackName.trim()) return;
+    
+    try {
+      const packId = await savePack(userId, projectId, {
+        name: newPackName.trim(),
+        type: 'drawings'
+      });
+      
+      const newPack: PackData = {
+        id: packId,
+        projectId,
+        userId,
+        name: newPackName.trim(),
+        type: 'drawings',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      setPacks(prev => [...prev, newPack]);
+      setNewPackName('');
+      setShowPackModal(false);
+    } catch (error) {
+      console.error('Error creating pack:', error);
+      alert('Failed to create pack. Please try again.');
+    }
+  }, [userId, projectId, newPackName]);
+
+  const handleUpdatePack = useCallback(async (packId: string, name: string) => {
+    try {
+      await updatePack(packId, { name });
+      setPacks(prev => prev.map(p => p.id === packId ? { ...p, name } : p));
+    } catch (error) {
+      console.error('Error updating pack:', error);
+    }
+  }, []);
+
+  const handleDeletePack = useCallback(async (packId: string) => {
+    if (!confirm('Are you sure you want to delete this pack? Drawings will remain but pack assignments will be removed.')) {
+      return;
+    }
+    
+    try {
+      await deletePack(packId);
+      // Remove pack from drawings
+      const drawingsToUpdate = drawings.filter(d => d.packIds?.includes(packId));
+      for (const drawing of drawingsToUpdate) {
+        const updatedPackIds = drawing.packIds?.filter(id => id !== packId) || [];
+        const updatedPackAnnotations = { ...drawing.packAnnotations };
+        delete updatedPackAnnotations[packId];
+        await handleUpdateDrawing(drawing.id, {
+          packIds: updatedPackIds,
+          packAnnotations: updatedPackAnnotations
+        });
+      }
+      setPacks(prev => prev.filter(p => p.id !== packId));
+    } catch (error) {
+      console.error('Error deleting pack:', error);
+    }
+  }, [drawings, handleUpdateDrawing]);
+
+  const handleAssignDrawingToPack = useCallback(async (drawingId: string, packId: string, assign: boolean) => {
+    const drawing = drawings.find(d => d.id === drawingId);
+    if (!drawing) return;
+    
+    const currentPackIds = drawing.packIds || [];
+    let updatedPackIds: string[];
+    let updatedPackAnnotations = { ...drawing.packAnnotations };
+    
+    if (assign) {
+      updatedPackIds = [...currentPackIds, packId];
+      // Initialize pack annotations if they don't exist
+      if (!updatedPackAnnotations[packId]) {
+        updatedPackAnnotations[packId] = {
+          polylines: [],
+          polygons: [],
+          counts: []
+        };
+      }
+    } else {
+      updatedPackIds = currentPackIds.filter(id => id !== packId);
+      delete updatedPackAnnotations[packId];
+    }
+    
+    await handleUpdateDrawing(drawingId, {
+      packIds: updatedPackIds,
+      packAnnotations: updatedPackAnnotations
+    });
+  }, [drawings, handleUpdateDrawing]);
+
+  // Filter drawings based on search query
+  const filteredDrawings = useMemo(() => {
+    if (!searchQuery.trim()) return drawings;
+    const query = searchQuery.toLowerCase();
+    return drawings.filter(d => 
+      d.fileName?.toLowerCase().includes(query) ||
+      d.packageName?.toLowerCase().includes(query) ||
+      d.drawingType?.toLowerCase().includes(query)
+    );
+  }, [drawings, searchQuery]);
+
+  // Filter packs based on search query
+  const filteredPacks = useMemo(() => {
+    if (!searchQuery.trim()) return packs;
+    const query = searchQuery.toLowerCase();
+    return packs.filter(p => p.name.toLowerCase().includes(query));
+  }, [packs, searchQuery]);
+
+  // Get drawings for a specific pack
+  const getDrawingsForPack = useCallback((packId: string) => {
+    return filteredDrawings.filter(d => d.packIds?.includes(packId));
+  }, [filteredDrawings]);
 
   if (selectedDrawing) {
     return (
@@ -282,6 +440,7 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
         drawing={selectedDrawing}
         onUpdate={handleUpdateDrawing}
         onClose={handleCloseViewer}
+        packId={selectedPackId}
       />
     );
   }
@@ -291,7 +450,19 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
       <section className="panel">
         <header className="page-heading">
           <div>
-            <h2 className="panel__title">Drawing Markup</h2>
+            <h2 className="panel__title" style={{ 
+              fontFamily: 'var(--font-body)',
+              fontSize: '28px',
+              fontWeight: 700,
+              color: 'var(--accent-primary)',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              textShadow: 'none',
+              WebkitFontSmoothing: 'subpixel-antialiased',
+              MozOsxFontSmoothing: 'auto'
+            }}>
+              Drawing Markup
+            </h2>
             <p className="panel__subtitle">
               Upload PDF drawings, set scales, and mark up with measurements, areas, and counts.
             </p>
@@ -326,6 +497,34 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
           </div>
         )}
 
+        {/* Search Bar */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ position: 'relative' }}>
+            <SearchIcon width={20} height={20} style={{ 
+              position: 'absolute', 
+              left: '12px', 
+              top: '50%', 
+              transform: 'translateY(-50%)',
+              color: 'var(--text-tertiary)'
+            }} />
+            <input
+              type="text"
+              placeholder="Search drawings and packages..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px 10px 40px',
+                border: '1px solid var(--border-strong)',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: 'var(--bg-surface)',
+                color: 'var(--text-primary)'
+              }}
+            />
+          </div>
+        </div>
+
         {isLoading ? (
           <div style={{ 
             padding: '80px 40px', 
@@ -336,32 +535,224 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
           }}>
             <div>Loading drawings...</div>
           </div>
-        ) : drawings.length === 0 ? (
-          <div style={{ 
-            padding: '80px 40px', 
-            textAlign: 'center',
-            border: '2px dashed var(--border-strong)',
-            borderRadius: '12px',
-            backgroundColor: 'var(--bg-surface-muted)'
-          }}>
-            <DrawingIcon width={48} height={48} style={{ opacity: 0.3, marginBottom: 16 }} />
-            <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>No drawings uploaded</h3>
-            <p style={{ margin: 0, color: 'var(--text-tertiary)' }}>
-              Upload PDF drawings to get started with markup and measurements.
-            </p>
-          </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-            {drawings.map(drawing => (
-              <DrawingCard
-                key={drawing.id}
-                drawing={drawing}
-                onUpdate={handleUpdateDrawing}
-                onDelete={handleDeleteDrawing}
-                onOpen={handleOpenDrawing}
-              />
-            ))}
-          </div>
+          <>
+            {/* All Drawings Section */}
+            <div style={{ marginBottom: '40px' }}>
+              <button
+                type="button"
+                onClick={() => setIsAllDrawingsExpanded(!isAllDrawingsExpanded)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  width: '100%',
+                  padding: '16px 0',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  marginBottom: '20px'
+                }}
+              >
+                {isAllDrawingsExpanded ? (
+                  <ChevronDownIcon width={20} height={20} style={{ color: 'var(--accent-primary)' }} />
+                ) : (
+                  <ChevronRightIcon width={20} height={20} style={{ color: 'var(--accent-primary)' }} />
+                )}
+                <h3 style={{ 
+                  margin: 0, 
+                  fontSize: '24px', 
+                  fontWeight: 700,
+                  color: 'var(--accent-primary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                  fontFamily: 'var(--font-body)',
+                  textShadow: 'none',
+                  WebkitFontSmoothing: 'subpixel-antialiased',
+                  MozOsxFontSmoothing: 'auto'
+                }}>
+                  All Drawings
+                </h3>
+                <span style={{ 
+                  marginLeft: 'auto',
+                  fontSize: '14px',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600
+                }}>
+                  ({filteredDrawings.length})
+                </span>
+              </button>
+              {isAllDrawingsExpanded && (
+                <>
+                  {filteredDrawings.length === 0 ? (
+                <div style={{ 
+                  padding: '60px 40px', 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '24px',
+                  border: '2px dashed var(--border-strong)',
+                  borderRadius: '12px',
+                  backgroundColor: 'var(--bg-surface-muted)'
+                }}>
+                  <DrawingIcon width={48} height={48} style={{ opacity: 0.3, flexShrink: 0 }} />
+                  <div>
+                    <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>
+                      {drawings.length === 0 ? 'No drawings uploaded' : 'No drawings match your search'}
+                    </h3>
+                    <p style={{ margin: 0, color: 'var(--text-tertiary)' }}>
+                      {drawings.length === 0 
+                        ? 'Upload PDF drawings to get started with markup and measurements.'
+                        : 'Try adjusting your search query.'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                  {filteredDrawings.map(drawing => (
+                    <DrawingCard
+                      key={drawing.id}
+                      drawing={drawing}
+                      packs={packs}
+                      onUpdate={handleUpdateDrawing}
+                      onDelete={handleDeleteDrawing}
+                      onOpen={handleOpenDrawing}
+                      onAssignToPack={handleAssignDrawingToPack}
+                    />
+                  ))}
+                </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Packages Section */}
+            <div style={{ marginBottom: '40px' }}>
+              <div
+                onClick={() => setIsPackagesExpanded(!isPackagesExpanded)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  width: '100%',
+                  padding: '16px 0',
+                  cursor: 'pointer',
+                  marginBottom: '20px'
+                }}
+              >
+                {isPackagesExpanded ? (
+                  <ChevronDownIcon width={20} height={20} style={{ color: 'var(--accent-primary)' }} />
+                ) : (
+                  <ChevronRightIcon width={20} height={20} style={{ color: 'var(--accent-primary)' }} />
+                )}
+                <h3 style={{ 
+                  margin: 0, 
+                  fontSize: '24px', 
+                  fontWeight: 700,
+                  color: 'var(--accent-primary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                  fontFamily: 'var(--font-body)',
+                  textShadow: 'none',
+                  WebkitFontSmoothing: 'subpixel-antialiased',
+                  MozOsxFontSmoothing: 'auto'
+                }}>
+                  Packages
+                </h3>
+                <span style={{ 
+                  marginLeft: 'auto',
+                  fontSize: '14px',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600
+                }}>
+                  ({filteredPacks.length})
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingPack(null);
+                    setNewPackName('');
+                    setShowPackModal(true);
+                  }}
+                  style={{ fontSize: '14px', padding: '8px 16px', marginLeft: '12px' }}
+                >
+                  <PlusIcon width={16} height={16} style={{ marginRight: 8 }} />
+                  Create Package
+                </button>
+              </div>
+
+              {isPackagesExpanded && (
+                <>
+                  {filteredPacks.length === 0 ? (
+                <div style={{ 
+                  padding: '60px 40px', 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '24px',
+                  border: '2px dashed var(--border-strong)',
+                  borderRadius: '12px',
+                  backgroundColor: 'var(--bg-surface-muted)'
+                }}>
+                  <DrawingIcon width={48} height={48} style={{ opacity: 0.3, flexShrink: 0 }} />
+                  <div>
+                    <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>
+                      {packs.length === 0 ? 'No packages created' : 'No packages match your search'}
+                    </h3>
+                    <p style={{ margin: 0, color: 'var(--text-tertiary)' }}>
+                      {packs.length === 0 
+                        ? 'Create packages to organize drawings for different contractors or purposes.'
+                        : 'Try adjusting your search query.'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {filteredPacks.map(pack => {
+                    const packDrawings = getDrawingsForPack(pack.id);
+                    return (
+                      <PackSection
+                        key={pack.id}
+                        pack={pack}
+                        drawings={packDrawings}
+                        allDrawings={filteredDrawings}
+                        onOpenDrawing={handleOpenDrawing}
+                        onUpdatePack={handleUpdatePack}
+                        onDeletePack={handleDeletePack}
+                        onAssignDrawingToPack={handleAssignDrawingToPack}
+                      />
+                    );
+                  })}
+                </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Pack Modal */}
+        {showPackModal && (
+          <PackModal
+            pack={editingPack}
+            packName={newPackName}
+            onPackNameChange={setNewPackName}
+            onSave={editingPack 
+              ? () => {
+                  handleUpdatePack(editingPack.id, newPackName);
+                  setShowPackModal(false);
+                  setEditingPack(null);
+                  setNewPackName('');
+                }
+              : handleCreatePack
+            }
+            onClose={() => {
+              setShowPackModal(false);
+              setEditingPack(null);
+              setNewPackName('');
+            }}
+          />
         )}
       </section>
     </div>
@@ -370,12 +761,14 @@ export const DrawingsLanding: React.FC<DrawingsLandingProps> = ({ userId, projec
 
 interface DrawingCardProps {
   drawing: Drawing;
+  packs?: PackData[];
   onUpdate: (id: string, updates: Partial<Drawing>) => void;
   onDelete: (id: string) => void;
-  onOpen: (drawing: Drawing) => void;
+  onOpen: (drawing: Drawing, packId?: string | null) => void;
+  onAssignToPack?: (drawingId: string, packId: string, assign: boolean) => void;
 }
 
-const DrawingCard: React.FC<DrawingCardProps> = ({ drawing, onUpdate, onDelete, onOpen }) => {
+const DrawingCard: React.FC<DrawingCardProps> = ({ drawing, packs = [], onUpdate, onDelete, onOpen, onAssignToPack }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [packageName, setPackageName] = useState(drawing.packageName);
   const [drawingType, setDrawingType] = useState(drawing.drawingType);
@@ -456,7 +849,9 @@ const DrawingCard: React.FC<DrawingCardProps> = ({ drawing, onUpdate, onDelete, 
                     padding: '8px',
                     border: '1px solid var(--border-strong)',
                     borderRadius: '6px',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)'
                   }}
                 />
               </div>
@@ -474,7 +869,8 @@ const DrawingCard: React.FC<DrawingCardProps> = ({ drawing, onUpdate, onDelete, 
                     border: '1px solid var(--border-strong)',
                     borderRadius: '6px',
                     fontSize: '14px',
-                    backgroundColor: 'white'
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)'
                   }}
                 >
                   {drawingTypes.map(type => (
@@ -549,6 +945,359 @@ const DrawingCard: React.FC<DrawingCardProps> = ({ drawing, onUpdate, onDelete, 
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+// Pack Section Component
+interface PackSectionProps {
+  pack: PackData;
+  drawings: Drawing[];
+  allDrawings: Drawing[];
+  onOpenDrawing: (drawing: Drawing, packId?: string | null) => void;
+  onUpdatePack: (packId: string, name: string) => void;
+  onDeletePack: (packId: string) => void;
+  onAssignDrawingToPack: (drawingId: string, packId: string, assign: boolean) => void;
+}
+
+const PackSection: React.FC<PackSectionProps> = ({ 
+  pack, 
+  drawings, 
+  allDrawings, 
+  onOpenDrawing, 
+  onUpdatePack, 
+  onDeletePack,
+  onAssignDrawingToPack 
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [packName, setPackName] = useState(pack.name);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+
+  const handleSave = () => {
+    onUpdatePack(pack.id, packName);
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setPackName(pack.name);
+    setIsEditing(false);
+  };
+
+  return (
+    <div className="card" style={{ padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        {isEditing ? (
+          <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+            <input
+              type="text"
+              value={packName}
+              onChange={(e) => setPackName(e.target.value)}
+              style={{
+                flex: 1,
+                padding: '8px',
+                border: '1px solid var(--border-strong)',
+                borderRadius: '6px',
+                fontSize: '16px',
+                fontWeight: 600,
+                backgroundColor: 'var(--bg-surface)',
+                color: 'var(--text-primary)'
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSave}
+              style={{ fontSize: '14px', padding: '8px 12px' }}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={handleCancel}
+              style={{ fontSize: '14px', padding: '8px 12px' }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <>
+            <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>{pack.name}</h4>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowAssignModal(true)}
+                style={{ fontSize: '14px', padding: '8px 12px' }}
+              >
+                <PlusIcon width={16} height={16} style={{ marginRight: 4 }} />
+                Add Drawings
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setIsEditing(true)}
+                style={{ fontSize: '14px', padding: '8px' }}
+              >
+                <EditIcon width={16} height={16} />
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => onDeletePack(pack.id)}
+                style={{ fontSize: '14px', padding: '8px', color: 'var(--danger)' }}
+              >
+                <XIcon width={16} height={16} />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {drawings.length === 0 ? (
+        <div style={{ 
+          padding: '40px 20px', 
+          textAlign: 'center',
+          border: '2px dashed var(--border-strong)',
+          borderRadius: '8px',
+          backgroundColor: 'var(--bg-surface-muted)'
+        }}>
+          <DrawingIcon width={32} height={32} style={{ opacity: 0.3, marginBottom: 8 }} />
+          <p style={{ margin: 0, color: 'var(--text-tertiary)', fontSize: '14px' }}>
+            No drawings in this pack. Click "Add Drawings" to assign drawings.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '16px' }}>
+          {drawings.map(drawing => (
+            <div 
+              key={drawing.id} 
+              className="card" 
+              style={{ 
+                padding: '12px', 
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => onOpenDrawing(drawing, pack.id)}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '';
+              }}
+            >
+              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                {drawing.file?.name || drawing.fileUrl?.split('/').pop() || 'Drawing'}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {drawing.drawingType}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAssignModal && (
+        <AssignDrawingsModal
+          pack={pack}
+          allDrawings={allDrawings}
+          assignedDrawingIds={drawings.map(d => d.id)}
+          onAssign={(drawingId, assign) => {
+            onAssignDrawingToPack(drawingId, pack.id, assign);
+          }}
+          onClose={() => setShowAssignModal(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+// Pack Modal Component
+interface PackModalProps {
+  pack: PackData | null;
+  packName: string;
+  onPackNameChange: (name: string) => void;
+  onSave: () => void;
+  onClose: () => void;
+}
+
+const PackModal: React.FC<PackModalProps> = ({ pack, packName, onPackNameChange, onSave, onClose }) => {
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }} onClick={onClose}>
+      <div 
+        className="card" 
+        style={{ 
+          width: '90%', 
+          maxWidth: '500px',
+          padding: '24px'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: 600 }}>
+          {pack ? 'Edit Package' : 'Create New Package'}
+        </h3>
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>
+            Package Name
+          </label>
+          <input
+            type="text"
+            value={packName}
+            onChange={(e) => onPackNameChange(e.target.value)}
+            placeholder="e.g., Walls Package, Doors Package"
+            style={{
+              width: '100%',
+              padding: '10px',
+              border: '1px solid var(--border-strong)',
+              borderRadius: '6px',
+              fontSize: '14px',
+              backgroundColor: 'var(--bg-surface)',
+              color: 'var(--text-primary)'
+            }}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onSave();
+              } else if (e.key === 'Escape') {
+                onClose();
+              }
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={onClose}
+            style={{ fontSize: '14px', padding: '8px 16px' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onSave}
+            disabled={!packName.trim()}
+            style={{ fontSize: '14px', padding: '8px 16px' }}
+          >
+            {pack ? 'Update' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Assign Drawings Modal Component
+interface AssignDrawingsModalProps {
+  pack: PackData;
+  allDrawings: Drawing[];
+  assignedDrawingIds: string[];
+  onAssign: (drawingId: string, assign: boolean) => void;
+  onClose: () => void;
+}
+
+const AssignDrawingsModal: React.FC<AssignDrawingsModalProps> = ({ 
+  pack, 
+  allDrawings, 
+  assignedDrawingIds, 
+  onAssign, 
+  onClose 
+}) => {
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }} onClick={onClose}>
+      <div 
+        className="card" 
+        style={{ 
+          width: '90%', 
+          maxWidth: '600px',
+          maxHeight: '80vh',
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: 600 }}>
+          Assign Drawings to {pack.name}
+        </h3>
+        <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px' }}>
+          {allDrawings.length === 0 ? (
+            <p style={{ color: 'var(--text-tertiary)', textAlign: 'center', padding: '40px' }}>
+              No drawings available
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {allDrawings.map(drawing => {
+                const isAssigned = assignedDrawingIds.includes(drawing.id);
+                return (
+                  <label
+                    key={drawing.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '12px',
+                      border: '1px solid var(--border-soft)',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      backgroundColor: isAssigned ? 'var(--bg-surface-muted)' : 'var(--bg-surface)'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isAssigned}
+                      onChange={(e) => onAssign(drawing.id, e.target.checked)}
+                      style={{ marginRight: '12px', cursor: 'pointer' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '14px', fontWeight: 600 }}>
+                        {drawing.file?.name || drawing.fileUrl?.split('/').pop() || 'Drawing'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {drawing.drawingType}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onClose}
+            style={{ fontSize: '14px', padding: '8px 16px' }}
+          >
+            Done
+          </button>
+        </div>
       </div>
     </div>
   );

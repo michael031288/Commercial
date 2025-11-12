@@ -5,7 +5,7 @@ import { ResultsDisplay } from './components/ResultsDisplay';
 import { ProgressDisplay, ProgressStep } from './components/ProgressDisplay';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { DataTable } from './components/DataTable';
-import { StandardizationReview } from './components/StandardizationReview';
+import { StandardisationReview } from './components/StandardisationReview';
 import { EmptyColumnReview } from './components/EmptyColumnReview';
 import { GroupingModeSelector } from './components/GroupingModeSelector';
 import { ManualGrouping } from './components/ManualGrouping';
@@ -13,17 +13,18 @@ import { OverviewLanding } from './components/OverviewLanding';
 import { DrawingsLanding } from './components/DrawingsLanding';
 import { ScheduleManagement } from './components/ScheduleManagement';
 import { ProjectsLanding } from './components/ProjectsLanding';
+import { IFCModelsLanding } from './components/IFCModelsLanding';
 import { Login } from './components/Login';
 import { standardizeData, groupData, NRMGroup, NRMElementData } from './services/geminiService';
-import { BuildingIcon, DashboardIcon, DrawingIcon, ListIcon, StarIcon, UploadIcon, FolderIcon, ArrowLeftIcon, PlusIcon, TableIcon } from './components/Icons';
+import { BuildingIcon, DashboardIcon, DrawingIcon, ListIcon, StarIcon, UploadIcon, FolderIcon, ArrowLeftIcon, PlusIcon, TableIcon, CubeIcon, ChevronRightIcon, UserIcon } from './components/Icons';
 import { GenericUpload } from './components/GenericUpload';
 import { ActivePage } from './types/navigation';
 import { Project } from './types/project';
 import { User } from 'firebase/auth';
 import { onAuthChange, signOutUser, getCurrentUser } from './services/authService';
 import { getUserProjects, saveProject, updateProject, deleteProject } from './services/firestoreService';
-import { saveCSVUpload, updateCSVUpload, getProjectCSVUploads } from './services/firestoreService';
-import { uploadImage } from './services/storageService';
+import { saveCSVUpload, updateCSVUpload, getProjectCSVUploads, getCSVUpload } from './services/firestoreService';
+import { uploadImage, uploadCSV, uploadProcessedData } from './services/storageService';
 
 const App: React.FC = () => {
   // Authentication
@@ -36,9 +37,10 @@ const App: React.FC = () => {
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [currentCSVUploadId, setCurrentCSVUploadId] = useState<string | null>(null);
 
-  // -1: Generic Upload Selection, 0: CSV Upload, 1: Column Analysis, 2: Extract/Review, 3: Review Standardization, 4: Standardize, 4.5: Grouping Mode Selector, 4.6: Manual Grouping, 5: Group
+  // -1: Generic Upload Selection, 0: CSV Upload, 1: Column Analysis, 2: Extract/Review, 3: Review Standardisation, 4: Standardise, 4.5: Grouping Mode Selector, 4.6: Manual Grouping, 5: Group
   const [activePage, setActivePage] = useState<ActivePage>(selectedProject ? 'overview' : 'projects');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentStep, setCurrentStep] = useState<number>(-1);
   const [groupingMode, setGroupingMode] = useState<'manual' | 'ai' | null>(null);
   const [manualGroups, setManualGroups] = useState<NRMGroup[]>([]);
@@ -136,6 +138,8 @@ const App: React.FC = () => {
       localStorage.removeItem('selectedProjectId');
     }
   }, [selectedProject]);
+
+  // Dark mode is default - no toggle needed
 
   // Sync selectedProject with projects array when projects change
   useEffect(() => {
@@ -471,12 +475,18 @@ const App: React.FC = () => {
     }
 
     setIsLoading(true);
-    setLoadingMessage('Parsing CSV file...');
-    setProgressSteps([{ title: 'Parsing CSV file...', status: 'active' }]);
+    setLoadingMessage('Uploading CSV file...');
+    setProgressSteps([{ title: 'Uploading CSV file...', status: 'active' }]);
     setError(null);
     setFileName(file.name);
 
     try {
+      // Upload CSV file to Storage
+      setLoadingMessage('Uploading CSV file to storage...');
+      const fileUrl = await uploadCSV(user.uid, selectedProject.id, file);
+      
+      // Parse CSV locally
+      setLoadingMessage('Parsing CSV file...');
       const csvData = await file.text();
       if (!csvData.trim()) throw new Error('The uploaded CSV file is empty.');
       
@@ -485,14 +495,29 @@ const App: React.FC = () => {
 
       setExtractedData(parsedData);
       
-      // Save CSV upload to Firestore
+      // Save CSV upload metadata to Firestore (without data arrays)
       const uploadId = await saveCSVUpload(user.uid, selectedProject.id, {
         projectId: selectedProject.id,
         fileName: file.name,
-        extractedData: parsedData
+        fileUrl: fileUrl
       });
-      setCurrentCSVUploadId(uploadId);
       
+      // Upload extractedData to Storage
+      setLoadingMessage('Saving processed data...');
+      const extractedDataUrl = await uploadProcessedData(
+        user.uid, 
+        selectedProject.id, 
+        uploadId,
+        'extracted',
+        parsedData
+      );
+      
+      // Update Firestore with extractedDataUrl
+      await updateCSVUpload(uploadId, {
+        extractedDataUrl: extractedDataUrl
+      });
+      
+      setCurrentCSVUploadId(uploadId);
       setCurrentStep(1); // Go to column analysis step
     } catch (err) {
       console.error(err);
@@ -508,10 +533,37 @@ const App: React.FC = () => {
     setCurrentStep(2); // Move to data review step
   }, []);
 
+  const handleSkipStandardisation = useCallback(async (data: NRMElementData[]) => {
+    // Skip standardisation - use data as-is and go directly to grouping
+    setExtractedData(data);
+    setStandardizedData(data); // Use extracted data as standardized data
+    
+    // Save standardized data to Storage if we have an upload ID
+    if (user && selectedProject && currentCSVUploadId) {
+      try {
+        const standardizedDataUrl = await uploadProcessedData(
+          user.uid,
+          selectedProject.id,
+          currentCSVUploadId,
+          'standardized',
+          data
+        );
+        
+        await updateCSVUpload(currentCSVUploadId, {
+          standardizedDataUrl: standardizedDataUrl
+        });
+      } catch (error) {
+        console.error('Error saving skipped standardisation data:', error);
+      }
+    }
+    
+    setCurrentStep(4.5); // Go directly to grouping mode selector
+  }, [user, selectedProject, currentCSVUploadId]);
+
   const handleProposeStandardization = useCallback(async (data: NRMElementData[]) => {
     setIsLoading(true);
-    setLoadingMessage('AI is analyzing headers...');
-    setProgressSteps([{ title: 'AI is analyzing headers...', status: 'active' }]);
+    setLoadingMessage('AI is analysing headers...');
+    setProgressSteps([{ title: 'AI is analysing headers...', status: 'active' }]);
     setError(null);
     try {
       setExtractedData(data); // Save any edits from step 2
@@ -521,7 +573,7 @@ const App: React.FC = () => {
       setCurrentStep(3);
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? `Standardization failed: ${err.message}` : 'An unknown error occurred.');
+      setError(err instanceof Error ? `Standardisation failed: ${err.message}` : 'An unknown error occurred.');
     } finally {
       setIsLoading(false);
     }
@@ -540,10 +592,19 @@ const App: React.FC = () => {
     });
     setStandardizedData(finalStandardizedData);
     
-    // Update CSV upload in Firestore
+    // Upload standardizedData to Storage
     try {
+      const standardizedDataUrl = await uploadProcessedData(
+        user.uid,
+        selectedProject.id,
+        currentCSVUploadId,
+        'standardized',
+        finalStandardizedData
+      );
+      
+      // Update Firestore with URL
       await updateCSVUpload(currentCSVUploadId, {
-        standardizedData: finalStandardizedData,
+        standardizedDataUrl: standardizedDataUrl,
         proposedStandardizations: approvedChanges
       });
     } catch (error) {
@@ -561,10 +622,17 @@ const App: React.FC = () => {
     
     setStandardizedData(data);
     
-    // Update CSV upload in Firestore with standardized data
     try {
+      const standardizedDataUrl = await uploadProcessedData(
+        user.uid,
+        selectedProject.id,
+        currentCSVUploadId,
+        'standardized',
+        data
+      );
+      
       await updateCSVUpload(currentCSVUploadId, {
-        standardizedData: data
+        standardizedDataUrl: standardizedDataUrl
       });
       console.log('✅ Published standardized data to Firebase');
     } catch (error) {
@@ -589,12 +657,22 @@ const App: React.FC = () => {
           }
           setGroupedData(result);
           
-          // Save grouped data to Firebase
+          // Save grouped data to Storage
           if (user && selectedProject && currentCSVUploadId) {
             try {
+              const groupedDataUrl = await uploadProcessedData(
+                user.uid,
+                selectedProject.id,
+                currentCSVUploadId,
+                'grouped',
+                result
+              );
+              
+              // Get current standardizedDataUrl if it exists
+              const currentUpload = await getCSVUpload(currentCSVUploadId);
               await updateCSVUpload(currentCSVUploadId, {
-                standardizedData: standardizedData,
-                groupedData: result
+                standardizedDataUrl: currentUpload?.standardizedDataUrl,
+                groupedDataUrl: groupedDataUrl
               });
               console.log('✅ Saved grouped data to Firebase');
             } catch (error) {
@@ -625,12 +703,22 @@ const App: React.FC = () => {
     const allGroups = [...groups];
     setGroupedData(allGroups);
     
-    // Save grouped data to Firebase
+    // Save grouped data to Storage
     if (user && selectedProject && currentCSVUploadId && standardizedData) {
       try {
+        const groupedDataUrl = await uploadProcessedData(
+          user.uid,
+          selectedProject.id,
+          currentCSVUploadId,
+          'grouped',
+          allGroups
+        );
+        
+        // Get current standardizedDataUrl if it exists
+        const currentUpload = await getCSVUpload(currentCSVUploadId);
         await updateCSVUpload(currentCSVUploadId, {
-          standardizedData: standardizedData,
-          groupedData: allGroups
+          standardizedDataUrl: currentUpload?.standardizedDataUrl,
+          groupedDataUrl: groupedDataUrl
         });
         console.log('✅ Saved grouped data to Firebase');
       } catch (error) {
@@ -654,12 +742,22 @@ const App: React.FC = () => {
       setGroupedData(mergedGroups);
       setManualGroups(mergedGroups);
       
-      // Save grouped data to Firebase
+      // Save grouped data to Storage
       if (user && selectedProject && currentCSVUploadId && standardizedData) {
         try {
+          const groupedDataUrl = await uploadProcessedData(
+            user.uid,
+            selectedProject.id,
+            currentCSVUploadId,
+            'grouped',
+            mergedGroups
+          );
+          
+          // Get current standardizedDataUrl if it exists
+          const currentUpload = await getCSVUpload(currentCSVUploadId);
           await updateCSVUpload(currentCSVUploadId, {
-            standardizedData: standardizedData,
-            groupedData: mergedGroups
+            standardizedDataUrl: currentUpload?.standardizedDataUrl,
+            groupedDataUrl: groupedDataUrl
           });
           console.log('✅ Saved grouped data to Firebase');
         } catch (error) {
@@ -742,7 +840,8 @@ const App: React.FC = () => {
     }
     
     if (error) {
-        return <ErrorDisplay error={error} onReset={handleReset} />;
+        const isStandardisationError = error.toLowerCase().includes('standardisation') || error.toLowerCase().includes('standardization');
+        return <ErrorDisplay error={error} onReset={handleReset} onSkip={isStandardisationError ? () => extractedData && handleSkipStandardisation(extractedData) : undefined} />;
     }
 
     switch (currentStep) {
@@ -770,24 +869,26 @@ const App: React.FC = () => {
             description="Review and edit the raw data extracted from your CSV file. You can add, remove, or modify columns and values before proceeding."
             data={extractedData}
             onNext={handleProposeStandardization}
+            onSkip={handleSkipStandardisation}
             onBack={() => setCurrentStep(1)}
             onReset={handleReset}
           />
         );
       case 3:
         return proposedStandardizations && (
-          <StandardizationReview
+          <StandardisationReview
             changes={proposedStandardizations}
             onComplete={handleApplyStandardization}
             onBack={() => setCurrentStep(2)}
             onReset={handleReset}
+            onSkip={() => extractedData && handleSkipStandardisation(extractedData)}
           />
         );
       case 4:
         return standardizedData && (
           <DataTable
-            title="Step 4: Standardized Data"
-            description="The AI has standardized the column headers based on your review. Make any final edits before grouping."
+            title="Step 4: Standardised Data"
+            description="The AI has standardised the column headers based on your review. Make any final edits before grouping."
             data={standardizedData}
             onNext={(editedData) => {
               setStandardizedData(editedData); // Save merged/edited data
@@ -837,7 +938,7 @@ const App: React.FC = () => {
           />
         );
       case 'overview':
-        return <OverviewLanding groupedData={groupedData} fileName={fileName} onReset={handleReset} />;
+        return <OverviewLanding groupedData={groupedData} fileName={fileName} onReset={handleReset} userId={user?.uid} projectId={selectedProject?.id} />;
       case 'uploads':
         return (
           <div className="panel">
@@ -848,6 +949,38 @@ const App: React.FC = () => {
         return <DrawingsLanding userId={user.uid} projectId={selectedProject?.id || ''} />;
       case 'schedules':
         return <ScheduleManagement userId={user.uid} projectId={selectedProject?.id || ''} />;
+      case 'ifcModels':
+        return <IFCModelsLanding userId={user.uid} projectId={selectedProject?.id || ''} />;
+      case 'account':
+        return (
+          <div className="landing-stack">
+            <section className="panel">
+              <header className="page-heading">
+                <div>
+                  <h2 className="panel__title" style={{ 
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '28px',
+                    fontWeight: 700,
+                    color: 'var(--accent-primary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    textShadow: 'none',
+                    WebkitFontSmoothing: 'subpixel-antialiased',
+                    MozOsxFontSmoothing: 'auto'
+                  }}>
+                    Account
+                  </h2>
+                  <p className="panel__subtitle">
+                    Manage your account settings and preferences.
+                  </p>
+                </div>
+              </header>
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <p>Account settings coming soon.</p>
+              </div>
+            </section>
+          </div>
+        );
       default:
         return null;
     }
@@ -882,7 +1015,7 @@ const App: React.FC = () => {
 
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isSidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
       {isMobileMenuOpen && (
         <div 
           className="sidebar-overlay sidebar-overlay--visible"
@@ -890,9 +1023,41 @@ const App: React.FC = () => {
           aria-hidden="true"
         />
       )}
-      <aside className={`sidebar ${isMobileMenuOpen ? 'sidebar--open' : ''}`}>
+      <aside className={`sidebar ${isMobileMenuOpen ? 'sidebar--open' : ''} ${isSidebarCollapsed ? 'sidebar--collapsed' : ''}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div>
-          <div className="sidebar__logo">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              style={{
+                background: 'var(--bg-surface-muted)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px',
+                cursor: 'pointer',
+                color: 'var(--text-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-surface)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--bg-surface-muted)';
+              }}
+              title={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
+            >
+              {isSidebarCollapsed ? <ChevronRightIcon width={18} height={18} /> : <ArrowLeftIcon width={18} height={18} />}
+            </button>
+          </div>
+          <div className="sidebar__logo" style={{ 
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center',
+            gap: '12px'
+          }}>
             {selectedProject && activePage !== 'projects' ? (
               <>
                 {selectedProject.photo ? (
@@ -900,44 +1065,46 @@ const App: React.FC = () => {
                     src={selectedProject.photo} 
                     alt={selectedProject.name}
                     style={{
-                      width: '48px',
-                      height: '48px',
-                      borderRadius: '12px',
+                      width: '80px',
+                      height: '80px',
+                      borderRadius: '16px',
                       objectFit: 'cover',
-                      border: '2px solid rgba(255, 255, 255, 0.2)'
+                      border: '2px solid var(--border-soft)',
+                      display: 'block',
+                      margin: '0 auto'
                     }}
+                    className={isSidebarCollapsed ? 'sidebar__logo-img-collapsed' : ''}
                   />
                 ) : (
-                  <span className="sidebar__logo-mark">DC</span>
+                  <span className="sidebar__logo-mark" style={{ 
+                    width: '80px',
+                    height: '80px',
+                    fontSize: '24px',
+                    borderRadius: '16px'
+                  }}>DC</span>
                 )}
-                <div>
-                  <div>{selectedProject.name}</div>
+                <div className={isSidebarCollapsed ? 'sidebar__logo-text-hidden' : ''}>
+                  <div style={{ fontSize: '16px', fontWeight: 600 }}>{selectedProject.name}</div>
                 </div>
               </>
             ) : (
               <>
-                <span className="sidebar__logo-mark">DC</span>
-                <div>
-                  <div>ESTIMATE</div>
-                  <small style={{ opacity: 0.65 }}>Automation Studio</small>
+                <span className="sidebar__logo-mark" style={{ 
+                  width: '80px',
+                  height: '80px',
+                  fontSize: '24px',
+                  borderRadius: '16px'
+                }}>DC</span>
+                <div className={isSidebarCollapsed ? 'sidebar__logo-text-hidden' : ''}>
+                  <div style={{ fontSize: '16px', fontWeight: 600 }}>ESTIMATE</div>
+                  <small style={{ opacity: 0.65, fontSize: '12px' }}>Automation Studio</small>
                 </div>
               </>
             )}
           </div>
         </div>
 
-        <nav className="sidebar__nav">
-          {activePage !== 'projects' && (
-            <button
-              className="sidebar__link"
-              type="button"
-              onClick={handleBackToProjects}
-              style={{ marginBottom: '8px' }}
-            >
-              <ArrowLeftIcon />
-              Back to Projects
-            </button>
-          )}
+        <nav className="sidebar__nav" style={{ flex: 1 }}>
           {selectedProject && (
             <button
               className={`sidebar__link ${activePage === 'uploads' ? 'sidebar__link--active' : ''}`}
@@ -964,7 +1131,7 @@ const App: React.FC = () => {
             onClick={() => handleNavigation('projects')}
           >
             <FolderIcon />
-            Projects
+            <span>Projects</span>
           </button>
           {selectedProject && (
             <>
@@ -974,7 +1141,7 @@ const App: React.FC = () => {
                 onClick={() => handleNavigation('overview')}
               >
                 <DashboardIcon />
-                Overview
+                <span>Home</span>
               </button>
               <button
                 className={`sidebar__link ${activePage === 'schedules' ? 'sidebar__link--active' : ''}`}
@@ -982,7 +1149,7 @@ const App: React.FC = () => {
                 onClick={() => handleNavigation('schedules')}
               >
                 <TableIcon />
-                Schedules
+                <span>Schedules</span>
               </button>
               <button
                 className={`sidebar__link ${activePage === 'drawings' ? 'sidebar__link--active' : ''}`}
@@ -990,15 +1157,30 @@ const App: React.FC = () => {
                 onClick={() => handleNavigation('drawings')}
               >
                 <DrawingIcon />
-                Drawings
+                <span>Drawings</span>
+              </button>
+              <button
+                className={`sidebar__link ${activePage === 'ifcModels' ? 'sidebar__link--active' : ''}`}
+                type="button"
+                onClick={() => handleNavigation('ifcModels')}
+              >
+                <CubeIcon />
+                <span>IFC Models</span>
               </button>
             </>
           )}
         </nav>
 
         <div className="sidebar__footer">
-          <div className="sidebar__footer-title">Need help?</div>
-          <div className="sidebar__footer-copy">Explore best practices for NRM alignment and schedule preparation.</div>
+          <button
+            className={`sidebar__link ${activePage === 'account' ? 'sidebar__link--active' : ''}`}
+            type="button"
+            onClick={() => handleNavigation('account')}
+            style={{ marginTop: 'auto' }}
+          >
+            <UserIcon />
+            <span>Account</span>
+          </button>
         </div>
       </aside>
 
@@ -1019,7 +1201,7 @@ const App: React.FC = () => {
         <main className="main-content">
           {renderPageContent()}
           <footer className="footer">
-            Securely processes CSV schedules
+            Created by M.Richards
           </footer>
         </main>
       </div>

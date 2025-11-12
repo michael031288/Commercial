@@ -1051,7 +1051,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect, onEdit, on
           type="button"
           onClick={handleEditClick}
           style={{
-            background: 'rgba(255, 255, 255, 0.95)',
+            background: 'var(--bg-surface)',
             border: 'none',
             borderRadius: '8px',
             width: '36px',
@@ -1065,11 +1065,11 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect, onEdit, on
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'white';
+            e.currentTarget.style.background = 'var(--bg-surface-muted)';
             e.currentTarget.style.transform = 'scale(1.05)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)';
+            e.currentTarget.style.background = 'var(--bg-surface)';
             e.currentTarget.style.transform = 'scale(1)';
           }}
           title="Edit project"
@@ -1080,7 +1080,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect, onEdit, on
           type="button"
           onClick={handleDeleteClick}
           style={{
-            background: 'rgba(255, 255, 255, 0.95)',
+            background: 'var(--bg-surface)',
             border: 'none',
             borderRadius: '8px',
             width: '36px',
@@ -1094,12 +1094,12 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect, onEdit, on
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'white';
+            e.currentTarget.style.background = 'var(--bg-surface-muted)';
             e.currentTarget.style.transform = 'scale(1.05)';
             e.currentTarget.style.color = 'var(--danger-strong)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)';
+            e.currentTarget.style.background = 'var(--bg-surface)';
             e.currentTarget.style.transform = 'scale(1)';
             e.currentTarget.style.color = 'var(--danger)';
           }}
@@ -1110,45 +1110,50 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect, onEdit, on
       </div>
 
       {/* Photo Header */}
-      {project.photo ? (
-        <div
-          style={{
-            width: '100%',
-            height: '180px',
-            backgroundImage: `url(${project.photo})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            position: 'relative',
-          }}
-        />
-      ) : (
-        <div
-          style={{
-            width: '100%',
-            height: '180px',
-            background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-strong) 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <FolderIcon width={64} height={64} style={{ color: 'rgba(255, 255, 255, 0.9)' }} />
-        </div>
-      )}
-
-      <div style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div>
-          <h3
+      <div style={{ padding: '24px 24px 16px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {project.photo ? (
+          <div
             style={{
-              margin: '0 0 8px 0',
-              fontSize: '20px',
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-              lineHeight: 1.3,
+              width: '100%',
+              height: '270px',
+              backgroundImage: `url(${project.photo})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              position: 'relative',
+              borderRadius: '12px',
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              height: '270px',
+              background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-strong) 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '12px',
             }}
           >
-            {project.name}
-          </h3>
+            <FolderIcon width={64} height={64} style={{ color: 'rgba(255, 255, 255, 0.9)' }} />
+          </div>
+        )}
+        <h3
+          style={{
+            margin: '0',
+            fontSize: '20px',
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+            lineHeight: 1.3,
+            textAlign: 'center',
+          }}
+        >
+          {project.name}
+        </h3>
+      </div>
+
+      <div style={{ padding: '0 24px 24px 24px', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div>
           {project.location && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '14px', color: 'var(--text-secondary)' }}>
               <BuildingIcon width={14} height={14} />

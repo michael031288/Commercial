@@ -3,14 +3,15 @@ import { ArrowLeftIcon, ChevronRightIcon, RedoIcon, CheckCircleIcon, XIcon as XC
 
 type Decision = 'accepted' | 'rejected' | 'pending';
 
-interface StandardizationReviewProps {
+interface StandardisationReviewProps {
   changes: Record<string, string>;
   onComplete: (approvedChanges: Record<string, string>) => void;
   onBack: () => void;
   onReset: () => void;
+  onSkip?: () => void;
 }
 
-export const StandardizationReview: React.FC<StandardizationReviewProps> = ({ changes, onComplete, onBack, onReset }) => {
+export const StandardisationReview: React.FC<StandardisationReviewProps> = ({ changes, onComplete, onBack, onReset, onSkip }) => {
   const allProposals = useMemo(() => {
     return Object.entries(changes).map(([from, to]) => ({ from, to }));
   }, [changes]);
@@ -81,7 +82,7 @@ export const StandardizationReview: React.FC<StandardizationReviewProps> = ({ ch
     <div>
       <div className="page-heading">
         <div>
-          <h2 className="panel__title">Step 2 · Review standardization</h2>
+          <h2 className="panel__title">Step 2 · Review standardisation</h2>
           <p className="panel__subtitle">
             Double-check each header the AI proposed. Click a proposed label to edit the wording, then accept or reject the update.
           </p>
@@ -172,7 +173,7 @@ export const StandardizationReview: React.FC<StandardizationReviewProps> = ({ ch
       ) : (
         <div className="empty-state">
           <CheckCircleIcon />
-          <h3 className="panel__title" style={{ marginTop: 6 }}>No headers to standardize</h3>
+          <h3 className="panel__title" style={{ marginTop: 6 }}>No headers to standardise</h3>
           <p className="muted">Your uploaded data already follows our naming guidelines. Continue to grouping.</p>
         </div>
       )}
@@ -185,6 +186,11 @@ export const StandardizationReview: React.FC<StandardizationReviewProps> = ({ ch
         <button type="button" className="btn btn-secondary" onClick={onBack}>
           <ArrowLeftIcon width={16} height={16} /> Back
         </button>
+        {onSkip && (
+          <button type="button" className="btn btn-secondary" onClick={onSkip}>
+            Skip standardisation
+          </button>
+        )}
         <button
           type="button"
           className="btn btn-primary"
@@ -198,3 +204,4 @@ export const StandardizationReview: React.FC<StandardizationReviewProps> = ({ ch
     </div>
   );
 };
+

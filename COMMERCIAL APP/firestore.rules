@@ -24,6 +24,42 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
       allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
     }
+    
+    // IFC Models collection - users can only access their own IFC models
+    match /ifcModels/{modelId} {
+      // Allow reading if the document belongs to the authenticated user
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow creating if the userId matches the authenticated user
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Allow updating/deleting if the document belongs to the authenticated user
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow list queries - we filter by userId in the application code
+      allow list: if request.auth != null;
+    }
+    
+    // Packs collection - users can only access their own packs
+    match /packs/{packId} {
+      // Allow reading if the document belongs to the authenticated user
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow creating if the userId matches the authenticated user
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Allow updating/deleting if the document belongs to the authenticated user
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow list queries - we filter by userId in the application code
+      allow list: if request.auth != null;
+    }
+    
+    // Schedule Views collection - users can only access their own schedule views
+    match /scheduleViews/{viewId} {
+      // Allow reading if the document belongs to the authenticated user
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow creating if the userId matches the authenticated user
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Allow updating/deleting if the document belongs to the authenticated user
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow list queries - we filter by userId in the application code
+      allow list: if request.auth != null;
+    }
   }
 }
 

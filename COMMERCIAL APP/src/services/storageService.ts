@@ -99,3 +99,158 @@ export const getPDFBlob = async (fileUrl: string): Promise<Blob> => {
   }
 };
 
+export const uploadIFC = async (userId: string, projectId: string, file: File): Promise<string> => {
+  const fileName = `${userId}/${projectId}/ifc/${Date.now()}-${file.name}`;
+  const storageRef = ref(storage, fileName);
+  
+  await uploadBytes(storageRef, file);
+  const downloadURL = await getDownloadURL(storageRef);
+  
+  return downloadURL;
+};
+
+export const uploadFragments = async (userId: string, projectId: string, fragmentsData: ArrayBuffer, fileName: string = 'fragments.frag'): Promise<string> => {
+  const filePath = `${userId}/${projectId}/fragments/${Date.now()}-${fileName}`;
+  const storageRef = ref(storage, filePath);
+  
+  const blob = new Blob([fragmentsData], { type: 'application/octet-stream' });
+  await uploadBytes(storageRef, blob);
+  const downloadURL = await getDownloadURL(storageRef);
+  
+  return downloadURL;
+};
+
+export const getIFCBlob = async (fileUrl: string): Promise<Blob> => {
+  const path = extractStoragePath(fileUrl);
+  
+  if (!path) {
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch IFC: ${response.statusText}`);
+    }
+    return await response.blob();
+  }
+  
+  try {
+    const storageRef = ref(storage, path);
+    const bytes = await getBytes(storageRef);
+    return new Blob([bytes], { type: 'application/octet-stream' });
+  } catch (error) {
+    console.error('Error fetching IFC from Firebase Storage:', error);
+    throw error;
+  }
+};
+
+/**
+ * Upload CSV file to Firebase Storage
+ */
+export const uploadCSV = async (userId: string, projectId: string, file: File): Promise<string> => {
+  const fileName = `${userId}/${projectId}/csv/${Date.now()}-${file.name}`;
+  const storageRef = ref(storage, fileName);
+  
+  await uploadBytes(storageRef, file);
+  const downloadURL = await getDownloadURL(storageRef);
+  
+  return downloadURL;
+};
+
+/**
+ * Upload processed data (extractedData, standardizedData, groupedData) as JSON to Storage
+ */
+export const uploadProcessedData = async (
+  userId: string, 
+  projectId: string, 
+  uploadId: string,
+  dataType: 'extracted' | 'standardized' | 'grouped',
+  data: any
+): Promise<string> => {
+  const fileName = `${userId}/${projectId}/csv/${uploadId}/${dataType}Data.json`;
+  const storageRef = ref(storage, fileName);
+  
+  const jsonString = JSON.stringify(data);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  
+  await uploadBytes(storageRef, blob);
+  const downloadURL = await getDownloadURL(storageRef);
+  
+  return downloadURL;
+};
+
+/**
+ * Download and parse CSV file from Storage
+ */
+export const getCSVFile = async (fileUrl: string): Promise<string> => {
+  const path = extractStoragePath(fileUrl);
+  
+  if (!path) {
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch CSV: ${response.statusText}`);
+    }
+    return await response.text();
+  }
+  
+  try {
+    const storageRef = ref(storage, path);
+    const bytes = await getBytes(storageRef);
+    const decoder = new TextDecoder('utf-8');
+    return decoder.decode(bytes);
+  } catch (error) {
+    console.error('Error fetching CSV from Firebase Storage:', error);
+    throw error;
+  }
+};
+
+/**
+ * Download and parse processed data JSON from Storage
+ */
+export const getProcessedData = async <T>(fileUrl: string): Promise<T | null> => {
+  if (!fileUrl) return null;
+  
+  try {
+    const path = extractStoragePath(fileUrl);
+    
+    if (!path) {
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        return null;
+      }
+      return await response.json();
+    }
+    
+    const storageRef = ref(storage, path);
+    const bytes = await getBytes(storageRef);
+    const decoder = new TextDecoder('utf-8');
+    const jsonString = decoder.decode(bytes);
+    return JSON.parse(jsonString) as T;
+  } catch (error) {
+    console.error('Error fetching processed data from Storage:', error);
+    return null;
+  }
+};
+
+/**
+ * Delete CSV file and all associated processed data from Storage
+ */
+export const deleteCSVFiles = async (csvData: {
+  fileUrl?: string;
+  extractedDataUrl?: string;
+  standardizedDataUrl?: string;
+  groupedDataUrl?: string;
+}): Promise<void> => {
+  const urls = [
+    csvData.fileUrl,
+    csvData.extractedDataUrl,
+    csvData.standardizedDataUrl,
+    csvData.groupedDataUrl
+  ].filter(Boolean) as string[];
+  
+  for (const url of urls) {
+    try {
+      await deletePDF(url); // Reuse deletePDF logic as it works for any file
+    } catch (error) {
+      console.error('Error deleting file from Storage:', url, error);
+    }
+  }
+};
+

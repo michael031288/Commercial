@@ -1,20 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { NRMGroup } from '../services/geminiService';
-import { FileIcon, RedoIcon, EnterFullScreenIcon, ExitFullScreenIcon, DashboardIcon, ListIcon } from './Icons';
+import { NRMGroup, NRMElementData } from '../services/geminiService';
+import { FileIcon, RedoIcon, EnterFullScreenIcon, ExitFullScreenIcon, DashboardIcon, ListIcon, ArrowLeftIcon, PlusIcon, PackageIcon, UploadIcon, XIcon } from './Icons';
 import { DashboardView } from './DashboardView';
 import { CategoryListView, CategoryDetailView } from './ResultsDisplay';
+import { PackData, ScheduleViewData } from '../services/firestoreService';
 
 interface OverviewLandingProps {
   groupedData: NRMGroup[] | null;
   fileName: string;
   onReset: () => void;
+  onBack?: () => void;
+  userId?: string;
+  projectId?: string;
+  scheduleId?: string;
+  packs?: PackData[];
+  onSaveView?: (viewName: string, packId: string | null) => void;
+  onExportCSV?: (data: NRMElementData[]) => void;
 }
 
-export const OverviewLanding: React.FC<OverviewLandingProps> = ({ groupedData, fileName, onReset }) => {
+export const OverviewLanding: React.FC<OverviewLandingProps> = ({ groupedData, fileName, onReset, onBack, userId, projectId, scheduleId, packs, onSaveView, onExportCSV }) => {
   const [selectedSection, setSelectedSection] = useState<NRMGroup | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'browse'>('dashboard');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const detailViewRef = useRef<HTMLDivElement>(null);
+  const [showSaveViewModal, setShowSaveViewModal] = useState(false);
+  const [newViewName, setNewViewName] = useState('');
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleFullScreenChange = () => {
@@ -36,6 +47,54 @@ export const OverviewLanding: React.FC<OverviewLandingProps> = ({ groupedData, f
 
   const handleSelectSection = (section: NRMGroup) => {
     setSelectedSection(section);
+  };
+
+  const handleExportCSV = () => {
+    if (!groupedData || groupedData.length === 0) return;
+    
+    // Convert grouped data to flat array
+    const flatData: NRMElementData[] = [];
+    groupedData.forEach(group => {
+      if (group.elements) {
+        group.elements.forEach(element => {
+          flatData.push(element.originalRowData);
+        });
+      }
+    });
+    
+    if (onExportCSV) {
+      onExportCSV(flatData);
+    } else {
+      // Fallback export
+      const rows: string[][] = [];
+      if (flatData.length > 0) {
+        const headers = Object.keys(flatData[0]);
+        rows.push(headers);
+        flatData.forEach(element => {
+          rows.push(headers.map(header => String(element[header] || '')));
+        });
+      }
+      
+      const csvContent = rows.map(row => 
+        row.map(cell => {
+          const cellStr = String(cell || '');
+          if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+            return `"${cellStr.replace(/"/g, '""')}"`;
+          }
+          return cellStr;
+        }).join(',')
+      ).join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${fileName.replace(/\.csv$/i, '')}_grouped_export.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   const TabButton: React.FC<{
@@ -68,6 +127,31 @@ export const OverviewLanding: React.FC<OverviewLandingProps> = ({ groupedData, f
               </div>
             </div>
             <div className="toolbar">
+              {onBack && (
+                <button type="button" className="btn btn-secondary" onClick={onBack}>
+                  <ArrowLeftIcon width={16} height={16} /> Back
+                </button>
+              )}
+              {onSaveView && scheduleId && (
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowSaveViewModal(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <PlusIcon width={16} height={16} />
+                  Save View
+                </button>
+              )}
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleExportCSV}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <UploadIcon width={16} height={16} />
+                Export CSV
+              </button>
               {selectedSection && (
                 <button
                   type="button"
@@ -123,113 +207,145 @@ export const OverviewLanding: React.FC<OverviewLandingProps> = ({ groupedData, f
             />
           )}
         </section>
+        
+        {/* Save View Modal */}
+        {showSaveViewModal && onSaveView && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }} onClick={() => setShowSaveViewModal(false)}>
+            <div 
+              className="card" 
+              style={{ 
+                width: '90%', 
+                maxWidth: '500px',
+                padding: '24px'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>Save Current View</h3>
+                <button 
+                  type="button"
+                  onClick={() => setShowSaveViewModal(false)}
+                  className="btn btn-ghost"
+                  style={{ padding: '4px' }}
+                >
+                  <XIcon width={16} height={16} />
+                </button>
+              </div>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>
+                  View Name
+                </label>
+                <input
+                  type="text"
+                  value={newViewName}
+                  onChange={(e) => setNewViewName(e.target.value)}
+                  placeholder="e.g., Main View, Filtered View"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid var(--border-strong)',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)'
+                  }}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newViewName.trim()) {
+                      onSaveView(newViewName, selectedPackId);
+                      setShowSaveViewModal(false);
+                      setNewViewName('');
+                      setSelectedPackId(null);
+                    } else if (e.key === 'Escape') {
+                      setShowSaveViewModal(false);
+                    }
+                  }}
+                />
+              </div>
+              {packs && packs.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>
+                    Add to Package (optional)
+                  </label>
+                  <select
+                    value={selectedPackId || ''}
+                    onChange={(e) => setSelectedPackId(e.target.value || null)}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      border: '1px solid var(--border-strong)',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      backgroundColor: 'var(--bg-surface)',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="">No package</option>
+                    {packs.map(pack => (
+                      <option key={pack.id} value={pack.id}>{pack.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button 
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowSaveViewModal(false);
+                    setNewViewName('');
+                    setSelectedPackId(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    if (newViewName.trim()) {
+                      onSaveView(newViewName, selectedPackId);
+                      setShowSaveViewModal(false);
+                      setNewViewName('');
+                      setSelectedPackId(null);
+                    }
+                  }}
+                  disabled={!newViewName.trim()}
+                >
+                  Save View
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  // Default overview content when no grouped data
+  // Default overview content when no grouped data - show empty state
   return (
     <div className="landing-stack">
       <section className="panel">
         <header className="page-heading">
           <div>
-            <h2 className="panel__title">Workspace Snapshot</h2>
+            <h2 className="panel__title">Project Overview</h2>
             <p className="panel__subtitle">
-              Monitor the health of your BIM schedules, open tasks, and NRM adoption across projects.
+              No data available yet. Upload schedules, drawings, or IFC models to get started.
             </p>
           </div>
         </header>
-
-        <div className="metric-grid">
-          <article className="metric-card">
-            <span className="metric-card__label">Active datasets</span>
-            <span className="metric-card__value">12</span>
-            <span className="metric-card__trend metric-card__trend--up">+3 this week</span>
-          </article>
-          <article className="metric-card">
-            <span className="metric-card__label">NRM alignment</span>
-            <span className="metric-card__value">86%</span>
-            <span className="metric-card__trend metric-card__trend--steady">Stable</span>
-          </article>
-          <article className="metric-card">
-            <span className="metric-card__label">AI assisted columns</span>
-            <span className="metric-card__value">1,420</span>
-            <span className="metric-card__trend metric-card__trend--up">+14%</span>
-          </article>
-          <article className="metric-card">
-            <span className="metric-card__label">Flagged anomalies</span>
-            <span className="metric-card__value">5</span>
-            <span className="metric-card__trend metric-card__trend--down">-2 since yesterday</span>
-          </article>
-        </div>
-      </section>
-
-      <section className="panel">
-        <header className="panel__header-inline">
-          <div>
-            <h3 className="panel__title">Workflow spotlight</h3>
-            <p className="panel__subtitle">
-              See where teams are in the upload-to-grouping journey and jump in to assist.
-            </p>
-          </div>
-        </header>
-
-        <div className="timeline-list">
-          <article className="timeline-card">
-            <div className="timeline-card__marker timeline-card__marker--success" />
-            <div>
-              <h4 className="timeline-card__title">Hospital West Project</h4>
-              <p className="timeline-card__meta">Completed grouping · 8 hours ago</p>
-            </div>
-            <span className="tag tag--success">Ready for export</span>
-          </article>
-          <article className="timeline-card">
-            <div className="timeline-card__marker timeline-card__marker--progress" />
-            <div>
-              <h4 className="timeline-card__title">March 2025 Schedule</h4>
-              <p className="timeline-card__meta">Standardization review in progress</p>
-            </div>
-          </article>
-          <article className="timeline-card">
-            <div className="timeline-card__marker timeline-card__marker--queued" />
-            <div>
-              <h4 className="timeline-card__title">Airport Expansion Lot B</h4>
-              <p className="timeline-card__meta">Awaiting upload · Owner: Sarah Lee</p>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section className="panel">
-        <header className="panel__header-inline">
-          <div>
-            <h3 className="panel__title">Recent announcements</h3>
-            <p className="panel__subtitle">
-              Keep everyone aligned on library updates, classification changes, and rollout plans.
-            </p>
-          </div>
-        </header>
-
-        <ul className="resource-list">
-          <li className="resource-list__item">
-            <div>
-              <h4>NRM v3.2 release window confirmed</h4>
-              <p>New mechanical services structure ships January 2026. Review the crosswalk plan with your teams.</p>
-            </div>
-          </li>
-          <li className="resource-list__item">
-            <div>
-              <h4>Classification onboarding playbook</h4>
-              <p>Step-by-step guidance for regional offices adopting the AI-assisted upload flow.</p>
-            </div>
-          </li>
-          <li className="resource-list__item">
-            <div>
-              <h4>Upcoming training sessions</h4>
-              <p>Two live enablement sessions scheduled next week covering advanced grouping strategies.</p>
-            </div>
-          </li>
-        </ul>
       </section>
     </div>
   );

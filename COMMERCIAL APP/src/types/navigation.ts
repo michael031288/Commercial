@@ -6,5 +6,7 @@ export type ActivePage =
   | 'classifications'
   | 'library'
   | 'insights'
-  | 'drawings';
+  | 'drawings'
+  | 'ifcModels'
+  | 'account';
 

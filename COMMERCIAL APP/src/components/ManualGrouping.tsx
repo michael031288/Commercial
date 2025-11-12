@@ -29,6 +29,12 @@ export const ManualGrouping: React.FC<ManualGroupingProps> = ({
   const [headers, setHeaders] = useState<string[]>([]);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set());
   const [showColumnToggle, setShowColumnToggle] = useState(false);
+  
+  // Row and column pagination state
+  const [rowsToShow, setRowsToShow] = useState<number>(20);
+  const [showAllRows, setShowAllRows] = useState<boolean>(false);
+  const [showAllColumns, setShowAllColumns] = useState<boolean>(false);
+  const columnsToShowDefault = 10;
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
   const [groupByColumn, setGroupByColumn] = useState<string | null>(null);
@@ -47,7 +53,13 @@ export const ManualGrouping: React.FC<ManualGroupingProps> = ({
     });
     const newHeaders = Array.from(initialHeadersSet).sort();
     setHeaders(newHeaders);
-    setVisibleColumns(new Set(newHeaders));
+    
+    // Show only first 10 columns by default
+    const defaultVisibleColumns = newHeaders.slice(0, columnsToShowDefault);
+    setVisibleColumns(new Set(defaultVisibleColumns));
+    setRowsToShow(20);
+    setShowAllRows(false);
+    setShowAllColumns(false);
   }, [data]);
 
   const filteredHeaders = useMemo(() => {
@@ -494,7 +506,7 @@ export const ManualGrouping: React.FC<ManualGroupingProps> = ({
                           onChange={selectedRows.size === remainingData.length ? deselectAllRows : selectAllRows}
                         />
                       </th>
-                      {headers.filter(h => visibleColumns.has(h)).map(header => (
+                      {(showAllColumns ? headers : headers.filter(h => visibleColumns.has(h))).map(header => (
                         <th key={header} scope="col">
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span>{header}</span>
@@ -514,18 +526,23 @@ export const ManualGrouping: React.FC<ManualGroupingProps> = ({
                   </thead>
                   <tbody>
                     {!groupByColumn ? (
-                      remainingData.map((row, index) => (
-                        <tr key={index} className={selectedRows.has(index) ? 'row-selected' : ''}>
+                      (showAllRows ? remainingData : remainingData.slice(0, rowsToShow)).map((row, displayIndex) => {
+                        // Use displayIndex as the key, but we need to track the actual index for selection
+                        // Since we're slicing from 0, displayIndex IS the actual index
+                        const rowIndex = displayIndex;
+                        return (
+                        <tr key={rowIndex} className={selectedRows.has(rowIndex) ? 'row-selected' : ''}>
                           <td>
                             <input
                               type="checkbox"
-                              checked={selectedRows.has(index)}
-                              onChange={() => toggleRowSelection(index)}
+                              checked={selectedRows.has(rowIndex)}
+                              onChange={() => toggleRowSelection(rowIndex)}
                             />
                           </td>
-                          {headers.filter(h => visibleColumns.has(h)).map(header => renderCell(row, index, header))}
+                          {(showAllColumns ? headers : headers.filter(h => visibleColumns.has(h))).map(header => renderCell(row, rowIndex, header))}
                         </tr>
-                      ))
+                      );
+                      })
                     ) : (
                       groupedElements && Array.from(groupedElements.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([groupKey, groupElements]) => {
                         const groupIndices = groupElements.map(item => remainingData.indexOf(item)).filter(idx => idx !== -1);
@@ -565,7 +582,7 @@ export const ManualGrouping: React.FC<ManualGroupingProps> = ({
                                       onChange={() => toggleRowSelection(originalIndex)}
                                     />
                                   </td>
-                                  {headers.filter(h => visibleColumns.has(h)).map(header => renderCell(element, originalIndex, header))}
+                                  {(showAllColumns ? headers : headers.filter(h => visibleColumns.has(h))).map(header => renderCell(element, originalIndex, header))}
                                 </tr>
                               );
                             })}
@@ -578,8 +595,51 @@ export const ManualGrouping: React.FC<ManualGroupingProps> = ({
               </div>
 
               <div className="table-companion">
-                <span><strong>{remainingData.length}</strong> rows visible · {visibleColumns.size} columns selected</span>
+                <span>
+                  <strong>{showAllRows ? remainingData.length : Math.min(rowsToShow, remainingData.length)}</strong> of <strong>{remainingData.length}</strong> rows visible · 
+                  {' '}
+                  <strong>{showAllColumns ? headers.length : visibleColumns.size}</strong> of <strong>{headers.length}</strong> columns selected
+                </span>
                 {groupByColumn && <span>Grouped by <strong>{groupByColumn}</strong>. Toggle rows to inspect values.</span>}
+                {!showAllRows && remainingData.length > rowsToShow && (
+                  <>
+                    <button 
+                      type="button" 
+                      className="btn btn-ghost" 
+                      onClick={() => {
+                        const nextBatch = Math.min(rowsToShow + 20, remainingData.length);
+                        setRowsToShow(nextBatch);
+                        if (nextBatch >= remainingData.length) {
+                          setShowAllRows(true);
+                        }
+                      }}
+                      style={{ marginLeft: 12 }}
+                    >
+                      Show next 20 rows
+                    </button>
+                    <button 
+                      type="button" 
+                      className="btn btn-ghost" 
+                      onClick={() => {
+                        setShowAllRows(true);
+                        setRowsToShow(remainingData.length);
+                      }}
+                      style={{ marginLeft: 8 }}
+                    >
+                      Show all rows ({remainingData.length})
+                    </button>
+                  </>
+                )}
+                {!showAllColumns && headers.length > columnsToShowDefault && (
+                  <button 
+                    type="button" 
+                    className="btn btn-ghost" 
+                    onClick={() => setShowAllColumns(true)}
+                    style={{ marginLeft: 12 }}
+                  >
+                    Show all columns ({headers.length})
+                  </button>
+                )}
               </div>
             </>
           ) : (

@@ -17,13 +17,14 @@ interface PDFViewerProps {
   drawing: Drawing;
   onUpdate: (id: string, updates: Partial<Drawing>) => void;
   onClose: () => void;
+  packId?: string | null; // Pack context - if provided, annotations are saved to packAnnotations
 }
 
 type MarkupMode = 'scale' | 'polyline' | 'polygon' | 'count' | 'none';
 type ScaleStep = 'none' | 'point1' | 'point2';
 type SidebarView = 'tools' | 'schedule';
 
-export const PDFViewer: React.FC<PDFViewerProps> = ({ drawing, onUpdate, onClose }) => {
+export const PDFViewer: React.FC<PDFViewerProps> = ({ drawing, onUpdate, onClose, packId }) => {
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.5);
@@ -72,7 +73,10 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ drawing, onUpdate, onClose
   const lastCalculatedScaleRef = useRef<number | null>(null);
   const scaleUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const drawingScale = drawing.scale;
+  // Use pack-specific scale if viewing in pack context, otherwise use default scale
+  const drawingScale = packId && drawing.packAnnotations?.[packId]?.scale 
+    ? drawing.packAnnotations[packId].scale 
+    : drawing.scale;
 
   // Ensure PDF.js worker is ready before rendering
   useEffect(() => {
@@ -241,28 +245,63 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ drawing, onUpdate, onClose
     const currentPolylines = JSON.stringify(polylines);
     const currentPolygons = JSON.stringify(polygons);
     const currentCounts = JSON.stringify(counts);
-    const storedPolylines = JSON.stringify(drawing.polylines || []);
-    const storedPolygons = JSON.stringify(drawing.polygons || []);
-    const storedCounts = JSON.stringify(drawing.counts || []);
+    
+    // If viewing in pack context, compare with pack-specific annotations
+    if (packId && drawing.packAnnotations?.[packId]) {
+      const packAnnotations = drawing.packAnnotations[packId];
+      const storedPolylines = JSON.stringify(packAnnotations.polylines || []);
+      const storedPolygons = JSON.stringify(packAnnotations.polygons || []);
+      const storedCounts = JSON.stringify(packAnnotations.counts || []);
+      
+      if (
+        !isUpdatingRef.current &&
+        (currentPolylines !== storedPolylines ||
+        currentPolygons !== storedPolygons ||
+        currentCounts !== storedCounts)
+      ) {
+        isUpdatingRef.current = true;
+        // Update pack-specific annotations
+        const updatedPackAnnotations = {
+          ...drawing.packAnnotations,
+          [packId]: {
+            ...packAnnotations,
+            polylines,
+            polygons,
+            counts,
+            scale: drawing.scale || packAnnotations.scale
+          }
+        };
+        onUpdate(drawing.id, {
+          packAnnotations: updatedPackAnnotations
+        });
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 100);
+      }
+    } else {
+      // Normal update (not in pack context)
+      const storedPolylines = JSON.stringify(drawing.polylines || []);
+      const storedPolygons = JSON.stringify(drawing.polygons || []);
+      const storedCounts = JSON.stringify(drawing.counts || []);
 
-    if (
-      !isUpdatingRef.current &&
-      (currentPolylines !== storedPolylines ||
-      currentPolygons !== storedPolygons ||
-      currentCounts !== storedCounts)
-    ) {
-      isUpdatingRef.current = true;
-      onUpdate(drawing.id, {
-        polylines,
-        polygons,
-        counts
-      });
-      // Reset flag after a short delay to allow parent update to complete
-      setTimeout(() => {
-        isUpdatingRef.current = false;
-      }, 100);
+      if (
+        !isUpdatingRef.current &&
+        (currentPolylines !== storedPolylines ||
+        currentPolygons !== storedPolygons ||
+        currentCounts !== storedCounts)
+      ) {
+        isUpdatingRef.current = true;
+        onUpdate(drawing.id, {
+          polylines,
+          polygons,
+          counts
+        });
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 100);
+      }
     }
-  }, [polylines, polygons, counts, drawing.id, onUpdate]);
+  }, [polylines, polygons, counts, drawing.id, drawing.packAnnotations, packId, onUpdate]);
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
@@ -521,14 +560,29 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ drawing, onUpdate, onClose
     if (scalePoint1 && scalePoint2 && scaleDistance) {
       const pixelDistance = calculateDistance(scalePoint1, scalePoint2);
       const realWorldDistance = parseFloat(scaleDistance);
+      const newScale = {
+        pixelDistance,
+        realWorldDistance,
+        unit: scaleUnit
+      };
       
-      onUpdate(drawing.id, {
-        scale: {
-          pixelDistance,
-          realWorldDistance,
-          unit: scaleUnit
-        }
-      });
+      // If viewing in pack context, save scale to pack-specific annotations
+      if (packId) {
+        const updatedPackAnnotations = {
+          ...drawing.packAnnotations,
+          [packId]: {
+            ...drawing.packAnnotations?.[packId],
+            scale: newScale
+          }
+        };
+        onUpdate(drawing.id, {
+          packAnnotations: updatedPackAnnotations
+        });
+      } else {
+        onUpdate(drawing.id, {
+          scale: newScale
+        });
+      }
 
       setScaleStep('none');
       setScalePoint1(null);

@@ -23,7 +23,7 @@ const pageCopy: Record<ActivePage, { title: string; subtitle: string; badges: st
     badges: [],
   },
   overview: {
-    title: 'DC - ESTIMATE Workspace',
+    title: 'Home',
     subtitle: '',
     badges: [],
   },
@@ -57,6 +57,16 @@ const pageCopy: Record<ActivePage, { title: string; subtitle: string; badges: st
     subtitle: 'Upload PDF drawings, set scales, and mark up with measurements, areas, and counts.',
     badges: ['Markup tools', 'Auto-save enabled'],
   },
+  ifcModels: {
+    title: 'IFC Models',
+    subtitle: 'Upload IFC files, link to schedules, and navigate between 3D models and schedule data.',
+    badges: ['Fragments viewer', 'Schedule linking'],
+  },
+  account: {
+    title: 'Account',
+    subtitle: 'Manage your account settings and preferences.',
+    badges: [],
+  },
 };
 
 export const Header: React.FC<HeaderProps> = ({ activePage, currentStep, onReset, onMobileMenuToggle, isMobileMenuOpen, user, onSignOut, selectedProject }) => {
@@ -67,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({ activePage, currentStep, onReset
     console.error(`No page copy found for activePage: ${activePage}`);
   }
   
-  // Use project name for overview page title
+  // Use project name for home page title
   const title = activePage === 'overview' && selectedProject 
     ? selectedProject.name 
     : (copy?.title || 'Projects');
@@ -80,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({ activePage, currentStep, onReset
             : currentStep === 1
             ? 'Review extraction'
             : currentStep === 2
-            ? 'Approve standardization'
+            ? 'Approve standardisation'
             : currentStep === 3
             ? 'Finalize dataset'
             : 'Explore groupings'
@@ -110,8 +120,18 @@ export const Header: React.FC<HeaderProps> = ({ activePage, currentStep, onReset
   };
 
   return (
-    <header className="shell-header" style={{ minHeight: '60px', padding: '16px 24px' }}>
-      <div className="shell-header__left">
+    <header className="shell-header" style={{ minHeight: '60px', padding: '16px 24px', backgroundColor: '#0f172a' }}>
+      <div className="shell-header__left" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <img 
+          src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Multiplex_%28company%29_logo.svg/2560px-Multiplex_%28company%29_logo.svg.png" 
+          alt="Multiplex Logo" 
+          style={{ 
+            height: '40px', 
+            width: 'auto',
+            objectFit: 'contain',
+            filter: 'brightness(0) invert(1)'
+          }} 
+        />
         <button 
           className="mobile-menu-toggle"
           onClick={onMobileMenuToggle}
@@ -125,16 +145,6 @@ export const Header: React.FC<HeaderProps> = ({ activePage, currentStep, onReset
         )}
       </div>
       <div className="shell-header__meta">
-        {activePage !== 'projects' && (
-          <div className="header-toolbar">
-            <input
-              type="search"
-              className="search-field header-toolbar__search"
-              placeholder={activePage === 'insights' ? 'Search metrics or dashboards' : 'Find columns or codes'}
-              aria-label="Find columns or codes"
-            />
-          </div>
-        )}
         <div className="avatar-pill" aria-label="Account" style={{ position: 'relative' }}>
           <span className="avatar-pill__photo">{getUserInitials(user)}</span>
           <div className="avatar-pill__name">
@@ -150,7 +160,7 @@ export const Header: React.FC<HeaderProps> = ({ activePage, currentStep, onReset
               fontSize: '12px',
               backgroundColor: 'transparent',
               border: '1px solid var(--border-strong)',
-              borderRadius: '4px',
+              borderRadius: '8px',
               color: 'var(--text-secondary)',
               cursor: 'pointer'
             }}

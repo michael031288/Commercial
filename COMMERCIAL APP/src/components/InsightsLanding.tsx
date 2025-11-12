@@ -36,7 +36,7 @@ export const InsightsLanding: React.FC = () => {
               <h3>Manual overrides</h3>
               <span className="tag tag--danger">+12%</span>
             </header>
-            <p>Teams are editing AI-proposed standardizations more frequently. Investigate high-variance headers.</p>
+            <p>Teams are editing AI-proposed standardisations more frequently. Investigate high-variance headers.</p>
             <ul className="insight-card__list">
               <li>Mechanical services · 32 overrides</li>
               <li>Envelope assemblies · 27 overrides</li>

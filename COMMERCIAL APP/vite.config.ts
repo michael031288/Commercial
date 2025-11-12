@@ -29,8 +29,32 @@ function copyPDFWorker() {
   }
 }
 
-// Copy worker file - runs on both dev and build
+// Copy fragments worker file to public directory
+function copyFragmentsWorker() {
+  const workerSource = path.resolve(__dirname, 'node_modules/@thatopen/fragments/dist/Worker/worker.mjs');
+  const workerDest = path.resolve(__dirname, 'public/fragments-worker.mjs');
+  
+  if (existsSync(workerSource)) {
+    try {
+      copyFileSync(workerSource, workerDest);
+      console.log('✅ Copied fragments worker to public directory');
+    } catch (error) {
+      console.warn('⚠️ Could not copy fragments worker:', error);
+      console.warn('💡 You may need to manually download the worker file from:');
+      console.warn('   https://thatopen.github.io/engine_fragment/resources/worker.mjs');
+      console.warn('   and save it to: public/fragments-worker.mjs');
+    }
+  } else {
+    console.warn('⚠️ Fragments worker file not found in node_modules');
+    console.warn('💡 Please download the worker file from:');
+    console.warn('   https://thatopen.github.io/engine_fragment/resources/worker.mjs');
+    console.warn('   and save it to: public/fragments-worker.mjs');
+  }
+}
+
+// Copy worker files - runs on both dev and build
 copyPDFWorker();
+copyFragmentsWorker();
 
 export default defineConfig({
   server: {
@@ -39,11 +63,12 @@ export default defineConfig({
   },
   plugins: [
     react(),
-    // Plugin to ensure worker file is copied when dev server starts
+    // Plugin to ensure worker files are copied when dev server starts
     {
-      name: 'copy-pdf-worker',
+      name: 'copy-workers',
       configureServer() {
         copyPDFWorker();
+        copyFragmentsWorker();
       },
     },
   ],

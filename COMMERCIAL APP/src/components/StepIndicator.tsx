@@ -6,7 +6,7 @@ interface StepIndicatorProps {
 }
 
 export const StepIndicator: React.FC<StepIndicatorProps> = ({ currentStep }) => {
-  const steps = ['Extract Data', 'Review Changes', 'Standardize Data', 'Group Data'];
+  const steps = ['Extract Data', 'Review Changes', 'Standardise Data', 'Group Data'];
 
   const getStepClass = (stepIndex: number) => {
     const stepNumber = stepIndex + 1;

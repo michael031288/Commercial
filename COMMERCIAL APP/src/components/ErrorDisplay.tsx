@@ -4,9 +4,10 @@ import { AlertTriangleIcon, RedoIcon } from './Icons';
 interface ErrorDisplayProps {
     error: string | null;
     onReset: () => void;
+    onSkip?: () => void;
 }
 
-export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error, onReset }) => {
+export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error, onReset, onSkip }) => {
     if (!error) return null;
 
     return (
@@ -20,6 +21,11 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error, onReset }) =>
                 <button type="button" className="btn btn-secondary" onClick={onReset}>
                     <RedoIcon width={16} height={16} /> Try again
                 </button>
+                {onSkip && (
+                    <button type="button" className="btn btn-secondary" onClick={onSkip}>
+                        Skip standardisation
+                    </button>
+                )}
             </div>
         </div>
     );
