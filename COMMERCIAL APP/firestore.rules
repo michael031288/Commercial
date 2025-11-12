@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Projects collection - users can only access their own projects
+    match /projects/{projectId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    }
+    
+    // CSV uploads collection - users can only access their own uploads
+    match /csvUploads/{uploadId} {
+      // Allow reading if the document belongs to the authenticated user
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow creating if the userId matches the authenticated user
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Allow updating/deleting if the document belongs to the authenticated user
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Allow list queries - we filter by userId in the application code
+      allow list: if request.auth != null;
+    }
+    
+    // Drawings collection - users can only access their own drawings
+    match /drawings/{drawingId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    }
+  }
+}
+

@@ -1,6 +1,133 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { NRMGroup } from '../services/geminiService';
+import { FileIcon, RedoIcon, EnterFullScreenIcon, ExitFullScreenIcon, DashboardIcon, ListIcon } from './Icons';
+import { DashboardView } from './DashboardView';
+import { CategoryListView, CategoryDetailView } from './ResultsDisplay';
 
-export const OverviewLanding: React.FC = () => {
+interface OverviewLandingProps {
+  groupedData: NRMGroup[] | null;
+  fileName: string;
+  onReset: () => void;
+}
+
+export const OverviewLanding: React.FC<OverviewLandingProps> = ({ groupedData, fileName, onReset }) => {
+  const [selectedSection, setSelectedSection] = useState<NRMGroup | null>(null);
+  const [activeView, setActiveView] = useState<'dashboard' | 'browse'>('dashboard');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const detailViewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleFullScreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === detailViewRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullScreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullScreenChange);
+  }, []);
+
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      detailViewRef.current?.requestFullscreen().catch(err => {
+        alert(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  const handleSelectSection = (section: NRMGroup) => {
+    setSelectedSection(section);
+  };
+
+  const TabButton: React.FC<{
+    label: string;
+    icon: React.ReactNode;
+    isActive: boolean;
+    onClick: () => void;
+  }> = ({ label, icon, isActive, onClick }) => {
+    return (
+      <button type="button" onClick={onClick} className={`pill-tab ${isActive ? 'pill-tab--active' : ''}`}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {icon}
+          {label}
+        </span>
+      </button>
+    );
+  };
+
+  // If grouped data exists, show the grouped results view
+  if (groupedData && groupedData.length > 0) {
+    return (
+      <div className="landing-stack">
+        <section className="panel">
+          <header className="page-heading">
+            <div>
+              <h2 className="panel__title">Grouped Results</h2>
+              <div className="value-chip">
+                <FileIcon width={16} height={16} />
+                {fileName || 'Untitled schedule.csv'}
+              </div>
+            </div>
+            <div className="toolbar">
+              {selectedSection && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={toggleFullScreen}
+                  title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+                >
+                  {isFullscreen ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <ExitFullScreenIcon width={16} height={16} /> Exit full screen
+                    </span>
+                  ) : (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <EnterFullScreenIcon width={16} height={16} /> Full screen view
+                    </span>
+                  )}
+                </button>
+              )}
+              <button type="button" className="btn btn-ghost" onClick={onReset}>
+                <RedoIcon width={16} height={16} /> Start over
+              </button>
+            </div>
+          </header>
+
+          {!selectedSection ? (
+            <div>
+              <div className="pill-tabs" role="tablist">
+                <TabButton
+                  label="Dashboard"
+                  icon={<DashboardIcon width={16} height={16} />}
+                  isActive={activeView === 'dashboard'}
+                  onClick={() => setActiveView('dashboard')}
+                />
+                <TabButton
+                  label="Browse sections"
+                  icon={<ListIcon width={16} height={16} />}
+                  isActive={activeView === 'browse'}
+                  onClick={() => setActiveView('browse')}
+                />
+              </div>
+              {activeView === 'dashboard' ? (
+                <DashboardView groups={groupedData} onSelectSection={handleSelectSection} />
+              ) : (
+                <CategoryListView groups={groupedData} onSelectSection={handleSelectSection} />
+              )}
+            </div>
+          ) : (
+            <CategoryDetailView
+              ref={detailViewRef}
+              section={selectedSection}
+              onBack={() => setSelectedSection(null)}
+              isFullscreen={isFullscreen}
+            />
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  // Default overview content when no grouped data
   return (
     <div className="landing-stack">
       <section className="panel">
@@ -10,10 +137,6 @@ export const OverviewLanding: React.FC = () => {
             <p className="panel__subtitle">
               Monitor the health of your BIM schedules, open tasks, and NRM adoption across projects.
             </p>
-          </div>
-          <div className="toolbar">
-            <button type="button" className="btn btn-secondary">Download summary</button>
-            <button type="button" className="btn btn-primary">Share report</button>
           </div>
         </header>
 
@@ -49,7 +172,6 @@ export const OverviewLanding: React.FC = () => {
               See where teams are in the upload-to-grouping journey and jump in to assist.
             </p>
           </div>
-          <button type="button" className="btn btn-ghost">View all runs</button>
         </header>
 
         <div className="timeline-list">
@@ -67,7 +189,6 @@ export const OverviewLanding: React.FC = () => {
               <h4 className="timeline-card__title">March 2025 Schedule</h4>
               <p className="timeline-card__meta">Standardization review in progress</p>
             </div>
-            <button type="button" className="btn btn-ghost">Open</button>
           </article>
           <article className="timeline-card">
             <div className="timeline-card__marker timeline-card__marker--queued" />
@@ -75,7 +196,6 @@ export const OverviewLanding: React.FC = () => {
               <h4 className="timeline-card__title">Airport Expansion Lot B</h4>
               <p className="timeline-card__meta">Awaiting upload · Owner: Sarah Lee</p>
             </div>
-            <button type="button" className="btn btn-secondary">Invite team</button>
           </article>
         </div>
       </section>
@@ -96,25 +216,21 @@ export const OverviewLanding: React.FC = () => {
               <h4>NRM v3.2 release window confirmed</h4>
               <p>New mechanical services structure ships January 2026. Review the crosswalk plan with your teams.</p>
             </div>
-            <button type="button" className="btn btn-ghost">View memo</button>
           </li>
           <li className="resource-list__item">
             <div>
               <h4>Classification onboarding playbook</h4>
               <p>Step-by-step guidance for regional offices adopting the AI-assisted upload flow.</p>
             </div>
-            <button type="button" className="btn btn-ghost">Download</button>
           </li>
           <li className="resource-list__item">
             <div>
               <h4>Upcoming training sessions</h4>
               <p>Two live enablement sessions scheduled next week covering advanced grouping strategies.</p>
             </div>
-            <button type="button" className="btn btn-ghost">Reserve seat</button>
           </li>
         </ul>
       </section>
     </div>
   );
 };
-

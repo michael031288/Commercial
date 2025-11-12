@@ -11,10 +11,6 @@ export const LibraryLanding: React.FC = () => {
               Browse canonical elements, understand measurement rules, and distribute guidance to delivery teams.
             </p>
           </div>
-          <div className="toolbar">
-            <button type="button" className="btn btn-secondary">Export library</button>
-            <button type="button" className="btn btn-primary">Publish update</button>
-          </div>
         </header>
 
         <div className="library-grid">
@@ -37,10 +33,6 @@ export const LibraryLanding: React.FC = () => {
                 <dd>Cost Engineering Guild</dd>
               </div>
             </dl>
-            <div className="library-card__actions">
-              <button type="button" className="btn btn-ghost">Open structure</button>
-              <button type="button" className="btn btn-secondary">Download guidance</button>
-            </div>
           </article>
 
           <article className="library-card">
@@ -62,10 +54,6 @@ export const LibraryLanding: React.FC = () => {
                 <dd>Commercial Excellence</dd>
               </div>
             </dl>
-            <div className="library-card__actions">
-              <button type="button" className="btn btn-ghost">Review changes</button>
-              <button type="button" className="btn btn-secondary">Compare versions</button>
-            </div>
           </article>
 
           <article className="library-card">
@@ -87,10 +75,6 @@ export const LibraryLanding: React.FC = () => {
                 <dd>Asset Strategy</dd>
               </div>
             </dl>
-            <div className="library-card__actions">
-              <button type="button" className="btn btn-ghost">Browse lifecycle sets</button>
-              <button type="button" className="btn btn-secondary">Assign custodians</button>
-            </div>
           </article>
         </div>
       </section>
@@ -109,7 +93,6 @@ export const LibraryLanding: React.FC = () => {
             <p>Ensure rates include curing accelerants. Use unit rate adjustments for winter pours.</p>
             <footer>
               <span>Authored by James Price</span>
-              <button type="button" className="btn btn-ghost">Copy to project</button>
             </footer>
           </article>
           <article className="guidance-card">
@@ -117,7 +100,6 @@ export const LibraryLanding: React.FC = () => {
             <p>Use the mechanical services sub-codes introduced in NRM 3. Mark conflicting headers for review.</p>
             <footer>
               <span>Authored by Priya Desai</span>
-              <button type="button" className="btn btn-ghost">Share update</button>
             </footer>
           </article>
           <article className="guidance-card">
@@ -125,7 +107,6 @@ export const LibraryLanding: React.FC = () => {
             <p>Apply lifecycle multipliers for assets exceeding 15-year usage. Reference the sustainability annex.</p>
             <footer>
               <span>Authored by Michael Chen</span>
-              <button type="button" className="btn btn-ghost">Flag for review</button>
             </footer>
           </article>
         </div>

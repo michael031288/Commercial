@@ -63,9 +63,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, disabled }
 
   return (
     <div>
-      <h2 className="panel__title">Upload your BIM schedule</h2>
+      <h2 className="panel__title">Upload your schedule</h2>
       <p className="panel__subtitle">
-        Drop a CSV export from your BIM model. Our AI will read headers, suggest aligned naming, and prepare NRM-ready groupings in minutes.
+        Drop a CSV export from your model. Our AI will read headers, suggest aligned naming, and prepare NRM-ready groupings in minutes.
       </p>
       <div
         className={dropzoneClasses}

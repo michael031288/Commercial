@@ -4,7 +4,7 @@ import { FileIcon, RedoIcon, ArrowLeftIcon, ChevronRightIcon, GroupIcon, Chevron
 import { DashboardView } from './DashboardView';
 
 // Sub-component for the category selection view
-const CategoryListView: React.FC<{
+export const CategoryListView: React.FC<{
   groups: NRMGroup[];
   onSelectSection: (section: NRMGroup) => void;
 }> = ({ groups, onSelectSection }) => (
@@ -36,7 +36,7 @@ const CategoryListView: React.FC<{
 );
 
 // Sub-component for the detailed view of a single category, updated to forward a ref
-const CategoryDetailView = forwardRef<HTMLDivElement, {
+export const CategoryDetailView = forwardRef<HTMLDivElement, {
   section: NRMGroup;
   onBack: () => void;
   isFullscreen: boolean;
